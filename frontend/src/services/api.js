@@ -19,7 +19,10 @@ async function handleResponse(res) {
       window.location.href = "/login"
       return undefined
     }
-    throw new Error(data?.error || "Invalid credentials")
+    const err = new Error(data?.error || "Invalid credentials")
+    err.status = 401
+    err.details = data
+    throw err
   }
 
   if (res.status === 403) {
@@ -28,11 +31,17 @@ async function handleResponse(res) {
       window.location.href = "/pending"
       return undefined
     }
-    throw new Error(data?.error || "Forbidden")
+    const err = new Error(data?.error || "Forbidden")
+    err.status = 403
+    err.details = data
+    throw err
   }
 
   if (!res.ok) {
-    throw new Error(data?.error || `Request failed (${res.status})`)
+    const err = new Error(data?.error || `Request failed (${res.status})`)
+    err.status = res.status
+    err.details = data
+    throw err
   }
 
   return data
