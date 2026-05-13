@@ -1,0 +1,10 @@
+{
+  "name": "AttendTrack",
+  "short_name": "AttendTrack",
+  "description": "Attendance management for your team",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#4f8ef7",
+  "icons": []
+}
