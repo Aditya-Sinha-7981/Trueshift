@@ -1,23 +1,38 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom"
-import { useAuth } from "./hooks/useAuth"
 
-import Login               from "./pages/Login"
-import Register            from "./pages/Register"
+import Login from "./pages/Login"
+import Register from "./pages/Register"
 import PendingVerification from "./pages/PendingVerification"
-import EmployeeDashboard   from "./pages/EmployeeDashboard"
-import AdminDashboard      from "./pages/AdminDashboard"
-import CheckIn             from "./pages/CheckIn"
-import ApplyLeave          from "./pages/ApplyLeave"
-import LeaveManagement     from "./pages/LeaveManagement"
-import EmployeeManagement  from "./pages/EmployeeManagement"
-import EmployeeProfile     from "./pages/EmployeeProfile"
-import GeofenceManagement  from "./pages/GeofenceManagement"
-import Holidays            from "./pages/Holidays"
-import Reports             from "./pages/Reports"
+import EmployeeDashboard from "./pages/EmployeeDashboard"
+import AdminDashboard from "./pages/AdminDashboard"
+import CheckIn from "./pages/CheckIn"
+import ApplyLeave from "./pages/ApplyLeave"
+import LeaveManagement from "./pages/LeaveManagement"
+import EmployeeManagement from "./pages/EmployeeManagement"
+import EmployeeProfile from "./pages/EmployeeProfile"
+import GeofenceManagement from "./pages/GeofenceManagement"
+import Holidays from "./pages/Holidays"
+import Reports from "./pages/Reports"
+
+function HomeRedirect() {
+  const token = localStorage.getItem("auth_token")
+  const role = localStorage.getItem("user_role")
+  if (!token) return <Navigate to="/login" replace />
+  if (["admin", "super_admin"].includes(role)) return <Navigate to="/admin" replace />
+  return <Navigate to="/dashboard" replace />
+}
 
 function RequireAuth({ children }) {
   const token = localStorage.getItem("auth_token")
   return token ? children : <Navigate to="/login" replace />
+}
+
+function RequireEmployee({ children }) {
+  const token = localStorage.getItem("auth_token")
+  const role = localStorage.getItem("user_role")
+  if (!token) return <Navigate to="/login" replace />
+  if (role !== "employee") return <Navigate to="/admin" replace />
+  return children
 }
 
 function RequireAdmin({ children }) {
@@ -38,29 +53,95 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        {/* Public */}
-        <Route path="/login"   element={<Login />} />
+        <Route path="/" element={<HomeRedirect />} />
+
+        <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
         <Route path="/pending" element={<PendingVerification />} />
 
-        {/* Employee */}
-        <Route path="/dashboard" element={<RequireAuth><EmployeeDashboard /></RequireAuth>} />
-        <Route path="/checkin"   element={<RequireAuth><CheckIn /></RequireAuth>} />
-        <Route path="/apply-leave" element={<RequireAuth><ApplyLeave /></RequireAuth>} />
+        <Route
+          path="/dashboard"
+          element={
+            <RequireEmployee>
+              <EmployeeDashboard />
+            </RequireEmployee>
+          }
+        />
+        <Route
+          path="/checkin"
+          element={
+            <RequireAuth>
+              <CheckIn />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/apply-leave"
+          element={
+            <RequireEmployee>
+              <ApplyLeave />
+            </RequireEmployee>
+          }
+        />
 
-        {/* Admin */}
-        <Route path="/admin"                    element={<RequireAdmin><AdminDashboard /></RequireAdmin>} />
-        <Route path="/admin/employees"          element={<RequireAdmin><EmployeeManagement /></RequireAdmin>} />
-        <Route path="/admin/employees/:id"      element={<RequireAdmin><EmployeeProfile /></RequireAdmin>} />
-        <Route path="/admin/leaves"             element={<RequireAdmin><LeaveManagement /></RequireAdmin>} />
-        <Route path="/admin/reports"            element={<RequireAdmin><Reports /></RequireAdmin>} />
-        <Route path="/admin/holidays"           element={<RequireAdmin><Holidays /></RequireAdmin>} />
+        <Route
+          path="/admin"
+          element={
+            <RequireAdmin>
+              <AdminDashboard />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin/employees"
+          element={
+            <RequireAdmin>
+              <EmployeeManagement />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin/employees/:id"
+          element={
+            <RequireAdmin>
+              <EmployeeProfile />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin/leaves"
+          element={
+            <RequireAdmin>
+              <LeaveManagement />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin/geofence"
+          element={
+            <RequireSuperAdmin>
+              <GeofenceManagement />
+            </RequireSuperAdmin>
+          }
+        />
+        <Route
+          path="/admin/holidays"
+          element={
+            <RequireSuperAdmin>
+              <Holidays />
+            </RequireSuperAdmin>
+          }
+        />
+        <Route
+          path="/admin/reports"
+          element={
+            <RequireAdmin>
+              <Reports />
+            </RequireAdmin>
+          }
+        />
 
-        {/* Super Admin only */}
-        <Route path="/admin/geofence"           element={<RequireSuperAdmin><GeofenceManagement /></RequireSuperAdmin>} />
-
-        {/* Default */}
-        <Route path="*" element={<Navigate to="/login" replace />} />
+        <Route path="*" element={<HomeRedirect />} />
       </Routes>
     </BrowserRouter>
   )

@@ -1,38 +1,60 @@
-// Central API wrapper — all fetch calls go through here, never inline in components
-// Reads base URL from VITE_API_URL in .env
-// Attaches Authorization: Bearer token automatically on every call
-// On 401: clears localStorage + redirects to /login
-// On 403 "pending verification": redirects to /pending
-
 const BASE_URL = import.meta.env.VITE_API_URL
 
-const getHeaders = () => ({
-  "Content-Type": "application/json",
-  Authorization: `Bearer ${localStorage.getItem("auth_token") || ""}`,
-})
+const getHeaders = () => {
+  const headers = { "Content-Type": "application/json" }
+  const token = localStorage.getItem("auth_token")
+  if (token) headers.Authorization = `Bearer ${token}`
+  return headers
+}
 
-const handleResponse = async (res) => {
+async function handleResponse(res) {
+  const data = await res.json().catch(() => ({}))
+
   if (res.status === 401) {
-    localStorage.clear()
-    window.location.href = "/login"
-    return
+    if (localStorage.getItem("auth_token")) {
+      localStorage.removeItem("auth_token")
+      localStorage.removeItem("user_role")
+      localStorage.removeItem("user_id")
+      localStorage.removeItem("user_full_name")
+      window.location.href = "/login"
+      return undefined
+    }
+    throw new Error(data?.error || "Invalid credentials")
   }
+
   if (res.status === 403) {
-    const data = await res.json()
-    if (data?.error?.includes("pending verification")) {
+    const msg = (data?.error || "").toLowerCase()
+    if (msg.includes("pending verification")) {
       window.location.href = "/pending"
-      return
+      return undefined
     }
     throw new Error(data?.error || "Forbidden")
   }
-  return res.json()
+
+  if (!res.ok) {
+    throw new Error(data?.error || `Request failed (${res.status})`)
+  }
+
+  return data
 }
 
 const api = {
-  get:    (path)        => fetch(`${BASE_URL}${path}`, { headers: getHeaders() }).then(handleResponse),
-  post:   (path, body)  => fetch(`${BASE_URL}${path}`, { method: "POST",   headers: getHeaders(), body: JSON.stringify(body) }).then(handleResponse),
-  put:    (path, body)  => fetch(`${BASE_URL}${path}`, { method: "PUT",    headers: getHeaders(), body: JSON.stringify(body) }).then(handleResponse),
-  delete: (path)        => fetch(`${BASE_URL}${path}`, { method: "DELETE", headers: getHeaders() }).then(handleResponse),
+  get: (path) =>
+    fetch(`${BASE_URL}${path}`, { headers: getHeaders() }).then(handleResponse),
+  post: (path, body) =>
+    fetch(`${BASE_URL}${path}`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify(body),
+    }).then(handleResponse),
+  put: (path, body) =>
+    fetch(`${BASE_URL}${path}`, {
+      method: "PUT",
+      headers: getHeaders(),
+      body: JSON.stringify(body),
+    }).then(handleResponse),
+  delete: (path) =>
+    fetch(`${BASE_URL}${path}`, { method: "DELETE", headers: getHeaders() }).then(handleResponse),
 }
 
 export default api
