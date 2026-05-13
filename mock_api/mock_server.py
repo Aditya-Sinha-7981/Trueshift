@@ -1,5 +1,8 @@
 """Local mock API for frontend development (Steps 1–12). Run: uvicorn mock_server:app --reload --port 8001"""
 
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
+
 from fastapi import Body, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
@@ -15,6 +18,36 @@ app.add_middleware(
 
 MOCK_EMP_ID = "mock-emp-001"
 MOCK_ADMIN_ID = "mock-admin-001"
+
+TZ = ZoneInfo("Asia/Kolkata")
+MOCK_ATTENDANCE_TODAY: dict[str, dict] = {}
+
+
+def _attendance_key(employee_id: str, day: date | None = None) -> str:
+    d = day or date.today()
+    return f"{employee_id}|{d.isoformat()}"
+
+
+def _build_recent_logs_employee_dashboard():
+    today = date.today()
+    cycle = ["present", "present", "late", "absent", "on_leave", "present"]
+    out = []
+    for i in range(30):
+        d = today - timedelta(days=i)
+        st = cycle[i % len(cycle)]
+        out.append(
+            {
+                "id": f"log-dash-{i}",
+                "date": d.isoformat(),
+                "checkin_time": "09:02" if st in ("present", "late") else None,
+                "checkout_time": "18:05" if st in ("present", "late") else None,
+                "hours_worked": 8.05 if st in ("present", "late") else None,
+                "status": st,
+                "zone_name": "Head Office" if st in ("present", "late") else None,
+                "selfie_url": None,
+            }
+        )
+    return out
 
 
 @app.get("/health")
@@ -60,29 +93,77 @@ async def mock_login(body: dict = Body(...)):
 
 # --- ATTENDANCE ------------------------------------------------------------
 @app.post("/api/attendance/checkin")
-async def mock_checkin(_body: dict = Body(...)):
+async def mock_checkin(body: dict = Body(...)):
+    emp = body.get("employee_id") or MOCK_EMP_ID
+    try:
+        lat = float(body["latitude"]) if body.get("latitude") is not None else None
+    except (TypeError, ValueError):
+        lat = None
+    if lat is not None and lat >= 91.0:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": "Outside all geofence zones",
+                "distance_meters": 450,
+                "nearest_zone": "Head Office",
+            },
+        )
+    key = _attendance_key(emp)
+    row = MOCK_ATTENDANCE_TODAY.get(key)
+    if row and row.get("checkin_time") and not row.get("checkout_time"):
+        return JSONResponse(status_code=400, content={"error": "Already checked in today"})
+    now = datetime.now(TZ)
+    now_iso = now.isoformat()
+    MOCK_ATTENDANCE_TODAY[key] = {
+        "status": "present",
+        "checkin_time": now_iso,
+        "checkout_time": None,
+        "hours_worked": None,
+        "zone_name": "Head Office",
+    }
     return {
         "message": "Checked in successfully",
         "status": "present",
-        "checkin_time": "09:02",
+        "checkin_time": now_iso,
         "zone_name": "Head Office",
     }
 
 
 @app.post("/api/attendance/checkout")
-async def mock_checkout(_body: dict = Body(...)):
-    return {"message": "Checked out", "hours_worked": 8.2, "checkout_time": "18:05"}
+async def mock_checkout(body: dict = Body(...)):
+    emp = body.get("employee_id") or MOCK_EMP_ID
+    key = _attendance_key(emp)
+    row = MOCK_ATTENDANCE_TODAY.get(key)
+    if not row or not row.get("checkin_time"):
+        return JSONResponse(status_code=400, content={"error": "No check-in found for today"})
+    if row.get("checkout_time"):
+        return JSONResponse(status_code=400, content={"error": "Already checked out"})
+    now = datetime.now(TZ)
+    checkout_iso = now.isoformat()
+    MOCK_ATTENDANCE_TODAY[key] = {
+        **row,
+        "checkout_time": checkout_iso,
+        "hours_worked": 8.2,
+    }
+    return {
+        "message": "Checked out successfully",
+        "hours_worked": 8.2,
+        "checkout_time": checkout_iso,
+    }
 
 
 @app.get("/api/attendance/today/{employee_id}")
-async def mock_today(_employee_id: str):
-    return {
-        "status": "present",
-        "checkin_time": "2025-05-10T09:02:00+05:30",
-        "checkout_time": None,
-        "hours_worked": None,
-        "zone_name": "Head Office",
-    }
+async def mock_today(employee_id: str):
+    key = _attendance_key(employee_id)
+    if key not in MOCK_ATTENDANCE_TODAY:
+        return {
+            "status": None,
+            "checkin_time": None,
+            "checkout_time": None,
+            "hours_worked": None,
+            "zone_name": None,
+        }
+    return MOCK_ATTENDANCE_TODAY[key]
 
 
 @app.get("/api/attendance/{employee_id}")
@@ -131,22 +212,39 @@ async def mock_logs(
 
 # --- DASHBOARD -------------------------------------------------------------
 @app.get("/api/dashboard/employee/{employee_id}")
-async def mock_emp_dashboard(_employee_id: str):
+async def mock_emp_dashboard(employee_id: str):
+    today = date.today()
+    key = _attendance_key(employee_id)
+    today_row = MOCK_ATTENDANCE_TODAY.get(key)
+    if not today_row:
+        today_payload = {
+            "status": None,
+            "checkin_time": None,
+            "checkout_time": None,
+            "hours_worked": None,
+            "zone_name": None,
+        }
+    else:
+        ci = today_row.get("checkin_time")
+        co = today_row.get("checkout_time")
+        today_payload = {
+            "status": today_row.get("status"),
+            "checkin_time": (ci[11:16] if isinstance(ci, str) and len(ci) >= 16 else ci),
+            "checkout_time": (co[11:16] if isinstance(co, str) and len(co) >= 16 else co),
+            "hours_worked": today_row.get("hours_worked"),
+            "zone_name": today_row.get("zone_name"),
+        }
+
     return {
         "profile": {
             "full_name": "Rahul Mehta",
             "employee_id": "EMP-001",
             "department": "Operations",
+            "designation": "Manager",
             "shift_start": "09:00",
             "shift_end": "18:00",
         },
-        "today": {
-            "status": "present",
-            "checkin_time": "09:02",
-            "checkout_time": None,
-            "hours_worked": None,
-            "zone_name": "Head Office",
-        },
+        "today": today_payload,
         "this_month": {
             "present": 18,
             "absent": 2,
@@ -171,8 +269,15 @@ async def mock_emp_dashboard(_employee_id: str):
                 "remaining": 6,
             },
         ],
-        "recent_logs": [],
-        "upcoming_leaves": [],
+        "recent_logs": _build_recent_logs_employee_dashboard(),
+        "upcoming_leaves": [
+            {
+                "type": "Casual Leave",
+                "from_date": (today + timedelta(days=5)).isoformat(),
+                "to_date": (today + timedelta(days=6)).isoformat(),
+                "days_requested": 2,
+            },
+        ],
     }
 
 
@@ -229,6 +334,8 @@ async def mock_employees(
                 "employee_id": "EMP-001",
                 "department": "Operations",
                 "designation": "Manager",
+                "shift_start": "09:00",
+                "shift_end": "18:00",
                 "is_active": True,
                 "is_verified": True,
             },
@@ -238,6 +345,8 @@ async def mock_employees(
                 "employee_id": "EMP-002",
                 "department": "Sales",
                 "designation": "Executive",
+                "shift_start": "10:00",
+                "shift_end": "19:00",
                 "is_active": True,
                 "is_verified": True,
             },
@@ -262,7 +371,7 @@ async def mock_pending():
 
 @app.post("/api/employees/{employee_id}/verify")
 async def mock_verify(_employee_id: str):
-    return {"message": "Employee verified and activated"}
+    return {"message": "Employee verified and activated", "employee_id": "EMP-042"}
 
 
 @app.put("/api/employees/{employee_id}")
@@ -296,6 +405,7 @@ async def mock_my_leaves(_employee_id: str):
             "days_requested": 2,
             "reason": "Personal",
             "status": "pending",
+            "rejection_note": None,
             "applied_at": "2025-05-09",
         },
         {
@@ -306,6 +416,7 @@ async def mock_my_leaves(_employee_id: str):
             "days_requested": 1,
             "reason": "Fever",
             "status": "approved",
+            "rejection_note": None,
             "applied_at": "2025-04-14",
         },
     ]
@@ -322,6 +433,7 @@ async def mock_all_leaves(
         {
             "id": "leave-1",
             "employee_name": "Rahul Mehta",
+            "employee_id": "EMP-001",
             "department": "Operations",
             "type": "Casual Leave",
             "from_date": "2025-05-12",
@@ -333,6 +445,7 @@ async def mock_all_leaves(
         {
             "id": "leave-2",
             "employee_name": "Priya Sharma",
+            "employee_id": "EMP-002",
             "department": "Sales",
             "type": "Sick Leave",
             "from_date": "2025-05-08",
@@ -341,16 +454,32 @@ async def mock_all_leaves(
             "reason": "Fever",
             "status": "approved",
         },
+        {
+            "id": "leave-3",
+            "employee_name": "Alex Kumar",
+            "employee_id": "EMP-003",
+            "department": "Operations",
+            "type": "Earned Leave",
+            "from_date": "2025-04-01",
+            "to_date": "2025-04-03",
+            "days_requested": 3,
+            "reason": "Personal work",
+            "status": "rejected",
+        },
     ]
     if status:
         leaves = [l for l in leaves if l["status"] == status]
-    return {"data": leaves, "total": len(leaves), "page": page, "limit": limit}
+    total = len(leaves)
+    start = (page - 1) * limit
+    page_rows = leaves[start : start + limit]
+    return {"data": page_rows, "total": total, "page": page, "limit": limit}
 
 
 @app.get("/api/leave/balance/{employee_id}")
 async def mock_balance(_employee_id: str):
     return [
         {
+            "leave_type_id": "00000000-0000-4000-8000-000000000001",
             "leave_type": "Casual Leave",
             "code": "CL",
             "color": "#4f8ef7",
@@ -359,6 +488,7 @@ async def mock_balance(_employee_id: str):
             "remaining": 8,
         },
         {
+            "leave_type_id": "00000000-0000-4000-8000-000000000002",
             "leave_type": "Sick Leave",
             "code": "SL",
             "color": "#10b981",
@@ -367,6 +497,7 @@ async def mock_balance(_employee_id: str):
             "remaining": 6,
         },
         {
+            "leave_type_id": "00000000-0000-4000-8000-000000000003",
             "leave_type": "Earned Leave",
             "code": "EL",
             "color": "#f59e0b",
